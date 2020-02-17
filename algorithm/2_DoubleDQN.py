@@ -278,4 +278,6 @@ if __name__ == '__main__':
             agent.save_model()
             print("Save Model {}".format(episode))
 
+    agent.save_model()
+    print("Save Model {}".format(episode))
     env.close()

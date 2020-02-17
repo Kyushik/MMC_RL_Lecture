@@ -97,7 +97,7 @@ class DQNAgent():
 
         self.memory = deque(maxlen=mem_maxlen)
         self.obs_set = deque(maxlen=skip_frame*stack_frame)
-   
+
         self.sess = tf.Session()
         self.init = tf.global_variables_initializer()
         self.sess.run(self.init)
@@ -175,7 +175,7 @@ class DQNAgent():
         # 타겟값 계산 
         target = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: states})
         target_val = self.sess.run(self.target_model.Q_Out, 
-                                   feed_dict={self.target_model.input: next_states})
+                                    feed_dict={self.target_model.input: next_states})
 
         for i in range(batch_size):
             if dones[i]:
@@ -185,7 +185,7 @@ class DQNAgent():
 
         # 학습 수행 및 손실함수 값 계산 
         _, loss, TD_error_batch = self.sess.run([self.model.UpdateModel, self.model.loss, self.model.TD_error],
-                                                 feed_dict={self.model.input: states, 
+                                                    feed_dict={self.model.input: states, 
                                                             self.model.target_Q: target,
                                                             self.model.w_is: w_batch})
 
@@ -208,14 +208,16 @@ class DQNAgent():
         Merge = tf.summary.merge_all()
 
         return Summary, Merge
-    
-    ######################################## PER #############################################
+
     def Write_Summray(self, reward, loss, episode):
         self.Summary.add_summary(
             self.sess.run(self.Merge, feed_dict={self.summary_loss: loss, 
-                                                 self.summary_reward: reward}), episode)
+                                                    self.summary_reward: reward}), episode)
 
+    ######################################## PER #############################################
     def append_TD_list(self, state, action, reward, next_state, done):
+        pass 
+
         # TD error의 데이터 길이가 mem_maxlen보다 길면 초기 데이터 제거 
         
         # Memory에 저장할 데이터에 대한 TD Error 계산
@@ -223,6 +225,7 @@ class DQNAgent():
         # TD list에 TD error에 대한 연산 수행 후 추가 
         
     def get_PER_minibatch(self):
+        pass 
         # TD list를 normalize
         
         # importance sampling weight 계산
@@ -325,4 +328,6 @@ if __name__ == '__main__':
             agent.save_model()
             print("Save Model {}".format(episode))
 
+    agent.save_model()
+    print("Save Model {}".format(episode))
     env.close()
