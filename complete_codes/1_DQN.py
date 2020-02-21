@@ -8,7 +8,7 @@ from collections import deque
 from mlagents.envs import UnityEnvironment
 
 # DQN을 위한 파라미터 값 세팅 
-state_size = [40, 80, 1]
+state_size = [80, 80, 1]
 action_size = 3
 
 load_model = False
@@ -37,7 +37,7 @@ epsilon_min = 0.1
 date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
 
 # 유니티 환경 경로 
-game = "Pong"
+game = "Breakout"
 env_name = "../env/" + game + "/Windows/" + game
 
 # 모델 저장 및 불러오기 경로

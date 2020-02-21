@@ -235,7 +235,7 @@ class DQNAgent():
         
         # Update Beta
         if done:
-            self.beta += (1 - beta_init) / (run_episode - start_train_episode)
+            self.beta += (1 - beta_init) / (run_step - start_train_step)
 
     ##########################################################################################
     
