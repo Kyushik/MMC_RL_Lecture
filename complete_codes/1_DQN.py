@@ -11,8 +11,8 @@ from mlagents.envs import UnityEnvironment
 state_size = [40, 80, 1]
 action_size = 3
 
-load_model = True
-train_mode = False
+load_model = False
+train_mode = True
 
 batch_size = 32
 mem_maxlen = 50000
@@ -250,13 +250,13 @@ if __name__ == '__main__':
             step += 1
 
             if step > start_train_step and train_mode:
-                # 학습 수행 
-                loss = agent.train_model(done)
-                losses.append(loss)
-
                 # Epsilon 감소 
                 if agent.epsilon > epsilon_min:
                     agent.epsilon -= 1 / (run_step - start_train_step)
+
+                # 학습 수행 
+                loss = agent.train_model(done)
+                losses.append(loss)
 
                 # 타겟 네트워크 업데이트 
                 if step % (target_update_step) == 0:
