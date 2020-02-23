@@ -236,7 +236,6 @@ if __name__ == '__main__':
             episode_rewards += reward
             done = env_info.local_done[0]
 
-            print(reward)
             next_state = agent.skip_stack_frame(step, next_obs)
 
             # 학습 모드인 경우 리플레이 메모리에 데이터 저장 
