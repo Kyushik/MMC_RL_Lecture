@@ -25,7 +25,7 @@ stack_frame = 4
 run_step = 1000000
 test_step = 50000
 
-start_train_step = 50000
+start_train_step = 25000
 
 target_update_step = 10000
 print_episode = 20
