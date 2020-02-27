@@ -41,11 +41,11 @@ game = "Breakout"
 env_name = "../env/" + game + "/Windows/" + game
 
 # 모델 저장 및 불러오기 경로
-save_path = "../saved_models/" + game + "/" + date_time + "_DQN"
-load_path = "../saved_models/" + game + "/20200221-10-30-27_DQN/model/model"
+save_path = "../saved_models/" + game + "/" + date_time + "_Dueling_DQN"
+load_path = "../saved_models/" + game + "/20200221-10-30-27_Dueling_DQN/model/model"
 
-# Model 클래스 -> 함성곱 신경망 정의 및 손실함수 설정, 네트워크 최적화 알고리즘 결정
-class Model():
+# DuelingModel 클래스 -> 합성곱 신경망 정의 및 손실함수 설정, 네트워크 최적화 알고리즘 결정
+class DuelingModel():
     def __init__(self, model_name):
         self.input = tf.placeholder(shape=[None, state_size[0], state_size[1], 
                                            state_size[2]*stack_frame], dtype=tf.float32)
@@ -66,8 +66,19 @@ class Model():
  
             self.flat = tf.layers.flatten(self.conv3)
 
-            self.fc1 = tf.layers.dense(self.flat,512,activation=tf.nn.relu)
-            self.Q_Out = tf.layers.dense(self.fc1, action_size, activation=None)
+            ######################################## Dueling DQN ###########################################
+            self.fc1_s = tf.layers.dense(self.flat,256,activation=tf.nn.relu)
+            self.fc1_a = tf.layers.dense(self.flat,256,activation=tf.nn.relu)
+            
+            self.fc2_s = tf.layers.dense(self.fc1_s, 1)
+            self.fc2_a = tf.layers.dense(self.fc1_a, action_size)
+
+            self.fc2_a_mean = tf.tile(tf.reduce_mean(self.fc2_a, axis=-1, keepdims=True), [1, action_size])
+            self.fc2_adv = tf.subtract(self.fc2_a, self.fc2_a_mean)
+
+            self.Q_Out = tf.add(self.fc2_s, self.fc2_adv)
+            ################################################################################################
+
         self.predict = tf.argmax(self.Q_Out, 1)
 
         self.target_Q = tf.placeholder(shape=[None, action_size], dtype=tf.float32)
@@ -82,12 +93,12 @@ class DQNAgent():
     def __init__(self):
         
         # 클래스의 함수들을 위한 값 설정 
-        self.model = Model("Q")
-        self.target_model = Model("target")
+        self.model = DuelingModel("Q")
+        self.target_model = DuelingModel("target")
 
         self.memory = deque(maxlen=mem_maxlen)
         self.obs_set = deque(maxlen=skip_frame*stack_frame)
-   
+
         config = tf.ConfigProto() 
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
@@ -193,7 +204,7 @@ class DQNAgent():
 # Main 함수 -> 전체적으로 DQN 알고리즘을 진행 
 if __name__ == '__main__':
     # 유니티 환경 경로 설정 (file_name)
-    env = UnityEnvironment(file_name=env_name)
+    env = UnityEnvironment(file_name=env_name, worker_id=2)
 
     # 유니티 브레인 설정 
     default_brain = env.brain_names[0]
@@ -218,7 +229,7 @@ if __name__ == '__main__':
         done = False
 
         for i in range(skip_frame*stack_frame):
-            agent.obs_set.append(obs)
+            agent.obs_set.append(np.zeros([state_size[0], state_size[1], state_size[2]]))
 
         state = agent.skip_stack_frame(step, obs)
 

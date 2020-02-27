@@ -41,8 +41,8 @@ game = "Breakout"
 env_name = "../env/" + game + "/Windows/" + game
 
 # 모델 저장 및 불러오기 경로
-save_path = "../saved_models/" + game + "/" + date_time + "_DQN"
-load_path = "../saved_models/" + game + "/20200221-10-30-27_DQN/model/model"
+save_path = "../saved_models/" + game + "/" + date_time + "_DDQN"
+load_path = "../saved_models/" + game + "/20200221-10-30-27_DDQN/model/model"
 
 # Model 클래스 -> 함성곱 신경망 정의 및 손실함수 설정, 네트워크 최적화 알고리즘 결정
 class Model():
@@ -74,7 +74,7 @@ class Model():
 
         # 손실함수 값 계산 및 네트워크 학습 수행 
         self.loss = tf.losses.huber_loss(self.target_Q, self.Q_Out)
-        self.UpdateModel = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
+        self.UpdateModel = tf.train.AdamOptimizer(learning_rate, epsilon=1e-2/batch_size).minimize(self.loss)
         self.trainable_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, model_name)
 
 # DQNAgent 클래스 -> DQN 알고리즘을 위한 다양한 함수 정의 
@@ -153,15 +153,17 @@ class DQNAgent():
             dones.append(mini_batch[i][4])
 
         # 타겟값 계산 
+        # Double DQN 부분
         target = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: states})
-        target_val = self.sess.run(self.target_model.Q_Out, 
+        action_t = self.sess.run(self.model.predict, feed_dict={self.model.input: next_states})
+        target_val = self.sess.run(self.target_model.Q_Out,
                                    feed_dict={self.target_model.input: next_states})
 
         for i in range(batch_size):
             if dones[i]:
                 target[i,actions[i]] = rewards[i]
             else:
-                target[i,actions[i]] = rewards[i] + discount_factor * np.amax(target_val[i])
+                target[i,actions[i]] = rewards[i] + discount_factor * target_val[i,action_t[i]]
 
         # 학습 수행 및 손실함수 값 계산 
         _, loss = self.sess.run([self.model.UpdateModel, self.model.loss],
