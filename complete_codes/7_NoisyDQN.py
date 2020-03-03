@@ -15,7 +15,7 @@ load_model = False
 train_mode = True
 
 batch_size = 32
-mem_maxlen = 25000
+mem_maxlen = 50000
 discount_factor = 0.99
 learning_rate = 0.00025
 
@@ -31,24 +31,15 @@ target_update_step = 5000
 print_episode = 25
 save_step = 100000
 
-epsilon_init = 1.0
-epsilon_min = 0.1
-
 date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
-
-# Parameters for PER
-eps = 0.00001
-
-alpha = 0.6
-beta_init = 0.4
 
 # 유니티 환경 경로 
 game = "Breakout"
 env_name = "../env/" + game + "/Windows/" + game
 
 # 모델 저장 및 불러오기 경로
-save_path = "../saved_models/" + game + "/" + date_time + "_PER_DQN"
-load_path = "../saved_models/" + game + "/20200221-10-30-27_PER_DQN/model/model"
+save_path = "../saved_models/" + game + "/" + date_time + "_NoisyDQN"
+load_path = "../saved_models/" + game + "/20200221-10-30-27_NoisyDQN/model/model"
 
 # Model 클래스 -> 함성곱 신경망 정의 및 손실함수 설정, 네트워크 최적화 알고리즘 결정
 class Model():
@@ -72,23 +63,53 @@ class Model():
  
             self.flat = tf.layers.flatten(self.conv3)
 
-            self.fc1 = tf.layers.dense(self.flat,512,activation=tf.nn.relu)
-            self.Q_Out = tf.layers.dense(self.fc1, action_size, activation=None)
+            ########################################### Noisy Network ###########################################
+            # 학습 여부 bool 형태로 받아오기 
+            self.is_train = tf.placeholder(tf.bool)
+
+            self.fc1 = tf.nn.relu(self.noisy_dense(self.flat, [self.flat.shape[1].value, 512], self.is_train))
+            self.Q_Out = self.noisy_dense(self.fc1, [512, action_size], self.is_train)
+            #####################################################################################################
         self.predict = tf.argmax(self.Q_Out, 1)
 
         self.target_Q = tf.placeholder(shape=[None, action_size], dtype=tf.float32)
 
         # 손실함수 값 계산 및 네트워크 학습 수행 
-        ################################################### PER ###########################################################
-        # w 받아오기, TD_error 계산하기, 손실함수 구하기 
-        self.w_is = tf.placeholder(tf.float32, shape = [None])
-        self.TD_error = tf.reduce_sum(tf.subtract(self.Q_Out, self.target_Q), axis=1)
-        
-        self.loss = tf.reduce_mean(tf.multiply(self.w_is, tf.square(self.TD_error)))
-        ###################################################################################################################
+        ########################################### Noisy Network ###########################################
+        self.action_onehot_batch = tf.placeholder(shape=[None, action_size], dtype=tf.float32)
 
+        self.predict_loss = tf.reduce_mean(self.Q_Out * self.action_onehot_batch, axis=1, keepdims=True)
+        self.target_loss = tf.reduce_mean(self.target_Q * self.action_onehot_batch, axis=1, keepdims=True)
+
+        self.loss = tf.losses.huber_loss(self.target_loss, self.predict_loss)
+        #####################################################################################################
         self.UpdateModel = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
         self.trainable_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, model_name)
+
+    ########################################### Noisy Network ###########################################
+    def mu_variable(self, shape):
+        return tf.Variable(tf.random_uniform(shape, minval = -tf.sqrt(3/shape[0]), maxval = tf.sqrt(3/shape[0])))
+
+    def sigma_variable(self, shape):
+        return tf.Variable(tf.constant(0.017, shape = shape))
+
+    def noisy_dense(self, input_, input_shape, is_train):
+        # NoisyNet 변수 정의
+        mu_w  = self.mu_variable(input_shape)
+        sig_w = self.sigma_variable(input_shape)
+        mu_b  = self.mu_variable([input_shape[1]])
+        sig_b = self.sigma_variable([input_shape[1]])
+
+        # 변수들에 대한 Epsilon 계산
+        eps_w = tf.cond(is_train, lambda: tf.random_normal(input_shape), lambda: tf.zeros(input_shape))
+        eps_b = tf.cond(is_train, lambda: tf.random_normal([input_shape[1]]), lambda: tf.zeros([input_shape[1]]))
+
+        # FC 연산 수행 
+        w_fc = tf.add(mu_w, tf.multiply(sig_w, eps_w))
+        b_fc = tf.add(mu_b, tf.multiply(sig_b, eps_b))
+
+        return tf.matmul(input_, w_fc) + b_fc
+    #####################################################################################################
 
 # DQNAgent 클래스 -> DQN 알고리즘을 위한 다양한 함수 정의 
 class DQNAgent():
@@ -107,14 +128,6 @@ class DQNAgent():
         self.init = tf.global_variables_initializer()
         self.sess.run(self.init)
 
-        self.epsilon = epsilon_init
-
-        ################################################### PER ###########################################################
-        # PER parameters
-        self.beta = beta_init
-        self.TD_list = deque(maxlen=mem_maxlen)
-        ###################################################################################################################
-
         self.Saver = tf.train.Saver()
         self.Summary, self.Merge = self.Make_Summary()
 
@@ -124,13 +137,12 @@ class DQNAgent():
             self.Saver.restore(self.sess, load_path)
 
     # Epsilon greedy 기법에 따라 행동 결정
-    def get_action(self, state):
-        if self.epsilon > np.random.rand():
+    def get_action(self, state, train_mode, step):
+        if step < start_train_step and train_mode:
             # 랜덤하게 행동 결정
             return np.random.randint(0, action_size)
         else:
-            # 네트워크 연산에 따라 행동 결정
-            predict = self.sess.run(self.model.predict, feed_dict={self.model.input: [state]})
+            predict = self.sess.run(self.model.predict, feed_dict={self.model.input: [state], self.model.is_train: train_mode})
             return np.asscalar(predict)
 
     # 프레임을 skip하면서 설정에 맞게 stack
@@ -149,20 +161,14 @@ class DQNAgent():
     def append_sample(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
-        ################################################### PER ###########################################################
-        # 해당 데이터에 대한 TD 에러 연산 및 TD_list에 저장
-        self.append_TD_list(state, action, reward, next_state, done)
-        ###################################################################################################################
-
     # 네트워크 모델 저장 
     def save_model(self):
         self.Saver.save(self.sess, save_path + "/model/model")
 
     # 학습 수행 
     def train_model(self, done):
-        ################################################### PER ###########################################################
         # 학습을 위한 미니 배치 데이터 샘플링
-        mini_batch, w_batch, batch_index = self.get_PER_minibatch()
+        mini_batch = random.sample(self.memory, batch_size)
 
         states = []
         actions = []
@@ -177,10 +183,12 @@ class DQNAgent():
             next_states.append(mini_batch[i][3])
             dones.append(mini_batch[i][4])
 
+        action_onehot_batch = np.eye(action_size)[actions]
+
         # 타겟값 계산 
-        target = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: states})
+        target = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: states, self.model.is_train: True})
         target_val = self.sess.run(self.target_model.Q_Out, 
-                                   feed_dict={self.target_model.input: next_states})
+                                   feed_dict={self.target_model.input: next_states, self.target_model.is_train: False})
 
         for i in range(batch_size):
             if dones[i]:
@@ -189,15 +197,12 @@ class DQNAgent():
                 target[i,actions[i]] = rewards[i] + discount_factor * np.amax(target_val[i])
 
         # 학습 수행 및 손실함수 값 계산 
-        _, loss, TD_error_batch = self.sess.run([self.model.UpdateModel, self.model.loss, self.model.TD_error],
-                                                 feed_dict={self.model.input: states, 
-                                                            self.model.target_Q: target,
-                                                            self.model.w_is: w_batch})
-
-        self.update_TD_list(TD_error_batch, batch_index)
-
+        _, loss = self.sess.run([self.model.UpdateModel, self.model.loss],
+                                feed_dict={self.model.input: states, 
+                                           self.model.action_onehot_batch: action_onehot_batch,
+                                           self.model.target_Q: target,
+                                           self.model.is_train: True})
         return loss
-        ###################################################################################################################
 
     # 타겟 네트워크 업데이트 
     def update_target(self):
@@ -219,49 +224,6 @@ class DQNAgent():
         self.Summary.add_summary(
             self.sess.run(self.Merge, feed_dict={self.summary_loss: loss, 
                                                  self.summary_reward: reward}), episode)
-
-    def append_TD_list(self, state, action, reward, next_state, done):
-        # Memory에 저장할 데이터에 대한 TD Error 계산
-        target = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: [state]})
-        target_val = self.sess.run(self.target_model.Q_Out, 
-                                    feed_dict={self.target_model.input: [next_state]})
-
-        if done:
-            target[0,action] = reward
-        else:
-            target[0,action] = reward + discount_factor * np.amax(target_val)
-
-        TD_error = np.sum(self.sess.run(self.model.TD_error, feed_dict = {self.model.target_Q: target, self.model.input: [state]}))
-
-        # TD list에 TD error에 대한 연산 수행 후 추가 
-        self.TD_list.append((abs(TD_error) + eps)**alpha)
-
-    def get_PER_minibatch(self):
-        # TD list를 normalize
-        TD_normalized = np.array(self.TD_list) / np.sum(self.TD_list)
-        
-        # importance sampling weight 계산
-        weight_is = (len(self.memory) * TD_normalized) ** (-self.beta)
-        weight_is = weight_is / np.max(weight_is)
-
-        # Select mini batch and importance sampling weights
-        minibatch = []
-        w_batch = []
-
-        batch_index = np.random.choice(len(TD_normalized), batch_size, p=TD_normalized)
-
-        for idx in batch_index:
-            w_batch.append(weight_is[idx])
-            minibatch.append(self.memory[idx])
-
-        return minibatch, w_batch, batch_index 
-
-    def update_TD_list(self, TD_error_batch, batch_index):
-        for i, idx_batch in enumerate(batch_index):
-            self.TD_list[idx_batch] = pow((abs(TD_error_batch[i]) + eps), alpha)
-
-        # Update Beta
-        self.beta += (1 - beta_init) / (run_step - start_train_step)
 
 # Main 함수 -> 전체적으로 DQN 알고리즘을 진행 
 if __name__ == '__main__':
@@ -302,7 +264,7 @@ if __name__ == '__main__':
                 env_info = env.reset(train_mode=train_mode)[default_brain]
 
             # 행동 결정 및 유니티 환경에 행동 적용 
-            action = agent.get_action(state)
+            action = agent.get_action(state, train_mode, step)
             env_info = env.step(action)[default_brain]
 
             # 다음 상태, 보상, 게임 종료 정보 취득 
@@ -318,17 +280,12 @@ if __name__ == '__main__':
                 agent.append_sample(state, action, reward, next_state, done)
             else:
                 time.sleep(0.0) 
-                agent.epsilon = 0.0
 
             # 상태 정보 업데이트 
             state = next_state
             step += 1
 
             if step > start_train_step and train_mode:
-                # Epsilon 감소 
-                if agent.epsilon > epsilon_min:
-                    agent.epsilon -= 1 / (run_step - start_train_step)
-
                 # 학습 수행 
                 loss = agent.train_model(done)
                 losses.append(loss)
@@ -347,8 +304,8 @@ if __name__ == '__main__':
 
         # 게임 진행 상황 출력 및 텐서 보드에 보상과 손실함수 값 기록 
         if episode % print_episode == 0 and episode != 0:
-            print("step: {} / episode: {} / reward: {:.2f} / loss: {:.4f} / epsilon: {:.3f}".format
-                  (step, episode, np.mean(rewards), np.mean(losses), agent.epsilon))
+            print("step: {} / episode: {} / reward: {:.2f} / loss: {:.4f}".format
+                  (step, episode, np.mean(rewards), np.mean(losses)))
             agent.Write_Summray(np.mean(rewards), np.mean(losses), episode)
             rewards = []
             losses = []

@@ -153,7 +153,7 @@ class DQNAgent():
             dones.append(mini_batch[i][4])
 
         # 타겟값 계산 
-        # Double DQN 부분
+        ###################################### Double DQN ######################################
         target = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: states})
         action_t = self.sess.run(self.model.predict, feed_dict={self.model.input: next_states})
         target_val = self.sess.run(self.target_model.Q_Out,
@@ -164,6 +164,7 @@ class DQNAgent():
                 target[i,actions[i]] = rewards[i]
             else:
                 target[i,actions[i]] = rewards[i] + discount_factor * target_val[i,action_t[i]]
+        ########################################################################################
 
         # 학습 수행 및 손실함수 값 계산 
         _, loss = self.sess.run([self.model.UpdateModel, self.model.loss],
