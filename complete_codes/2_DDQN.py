@@ -28,7 +28,7 @@ test_step = 100000
 start_train_step = 50000
 
 target_update_step = 5000
-print_episode = 25
+print_step = 5000
 save_step = 100000
 
 epsilon_init = 1.0
@@ -70,11 +70,15 @@ class Model():
             self.Q_Out = tf.layers.dense(self.fc1, action_size, activation=None)
         self.predict = tf.argmax(self.Q_Out, 1)
 
-        self.target_Q = tf.placeholder(shape=[None, action_size], dtype=tf.float32)
-
         # 손실함수 값 계산 및 네트워크 학습 수행 
-        self.loss = tf.losses.huber_loss(self.target_Q, self.Q_Out)
-        self.UpdateModel = tf.train.AdamOptimizer(learning_rate, epsilon=1e-2/batch_size).minimize(self.loss)
+        self.action_onehot = tf.placeholder(shape=[None, action_size], dtype=tf.float32)
+        self.target_Q = tf.placeholder(shape=[None, 1], dtype=tf.float32)
+
+        self.predict_Q = tf.reduce_sum(self.Q_Out * self.action_onehot, axis=1, keepdims=True)
+        
+        self.loss = tf.reduce_mean(tf.square(self.target_Q-self.predict_Q))
+        # self.loss = tf.losses.huber_loss(self.target_Q, self.predict_Q)
+        self.UpdateModel = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
         self.trainable_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, model_name)
 
 # DQNAgent 클래스 -> DQN 알고리즘을 위한 다양한 함수 정의 
@@ -152,23 +156,28 @@ class DQNAgent():
             next_states.append(mini_batch[i][3])
             dones.append(mini_batch[i][4])
 
-        # 타겟값 계산 
-        ###################################### Double DQN ######################################
-        target = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: states})
-        action_t = self.sess.run(self.model.predict, feed_dict={self.model.input: next_states})
-        target_val = self.sess.run(self.target_model.Q_Out,
+        action_onehot_batch = np.eye(action_size)[actions]
+
+        # 타겟값 계산
+        target = np.zeros([batch_size, 1]) 
+        target_val = self.sess.run(self.target_model.Q_Out, 
                                    feed_dict={self.target_model.input: next_states})
+
+        ###################################### Double DQN ######################################
+        Q_next = self.sess.run(self.model.Q_Out, feed_dict={self.model.input: next_states})
 
         for i in range(batch_size):
             if dones[i]:
-                target[i,actions[i]] = rewards[i]
+                target[i] = rewards[i]
             else:
-                target[i,actions[i]] = rewards[i] + discount_factor * target_val[i,action_t[i]]
+                target[i] = rewards[i] + discount_factor * target_val[i,np.argmax(Q_next[i,:])]
+                # target[i] = rewards[i] + discount_factor * np.amax(target_val[i])
         ########################################################################################
 
         # 학습 수행 및 손실함수 값 계산 
         _, loss = self.sess.run([self.model.UpdateModel, self.model.loss],
                                 feed_dict={self.model.input: states, 
+                                           self.model.action_onehot: action_onehot_batch,
                                            self.model.target_Q: target})
         return loss
 
@@ -188,10 +197,10 @@ class DQNAgent():
 
         return Summary, Merge
     
-    def Write_Summray(self, reward, loss, episode):
+    def Write_Summray(self, reward, loss, step):
         self.Summary.add_summary(
             self.sess.run(self.Merge, feed_dict={self.summary_loss: loss, 
-                                                 self.summary_reward: reward}), episode)
+                                                 self.summary_reward: reward}), step)
 
 # Main 함수 -> 전체적으로 DQN 알고리즘을 진행 
 if __name__ == '__main__':
@@ -272,16 +281,16 @@ if __name__ == '__main__':
                 agent.save_model()
                 print("Save Model: {}".format(save_path))
 
+            # 게임 진행 상황 출력 및 텐서 보드에 보상과 손실함수 값 기록 
+            if step % print_step == 0 and step != 0 and len(rewards)>5:
+                print("step: {} / episode: {} / reward: {:.2f} / loss: {:.4f} / epsilon: {:.3f}".format
+                     (step, episode, np.mean(rewards), np.mean(losses), agent.epsilon))
+                agent.Write_Summray(np.mean(rewards), np.mean(losses), step)
+                rewards = []
+                losses = []
+                
         rewards.append(episode_rewards)
         episode += 1
-
-        # 게임 진행 상황 출력 및 텐서 보드에 보상과 손실함수 값 기록 
-        if episode % print_episode == 0 and episode != 0:
-            print("step: {} / episode: {} / reward: {:.2f} / loss: {:.4f} / epsilon: {:.3f}".format
-                  (step, episode, np.mean(rewards), np.mean(losses), agent.epsilon))
-            agent.Write_Summray(np.mean(rewards), np.mean(losses), episode)
-            rewards = []
-            losses = []
 
     agent.save_model()
     print("Save Model: {}".format(save_path))

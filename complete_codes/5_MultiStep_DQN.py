@@ -36,13 +36,16 @@ epsilon_min = 0.1
 
 date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
 
+# Parameter for MultiStep
+n_step = 3
+
 # 유니티 환경 경로 
 game = "Breakout"
 env_name = "../env/" + game + "/Windows/" + game
 
 # 모델 저장 및 불러오기 경로
-save_path = "../saved_models/" + game + "/" + date_time + "_DuelingDQN"
-load_path = "../saved_models/" + game + "/20200221-10-30-27_DuelingDQN/model/model"
+save_path = "../saved_models/" + game + "/" + date_time + "_MultiStep_DQN"
+load_path = "../saved_models/" + game + "/20200221-10-30-27_MultiStep_DQN/model/model"
 
 # Model 클래스 -> 함성곱 신경망 정의 및 손실함수 설정, 네트워크 최적화 알고리즘 결정
 class Model():
@@ -66,18 +69,8 @@ class Model():
  
             self.flat = tf.layers.flatten(self.conv3)
 
-            ######################################## Dueling DQN ###########################################
-            self.fc1_s = tf.layers.dense(self.flat,256,activation=tf.nn.relu)
-            self.fc1_a = tf.layers.dense(self.flat,256,activation=tf.nn.relu)
-            
-            self.fc2_s = tf.layers.dense(self.fc1_s, 1)
-            self.fc2_a = tf.layers.dense(self.fc1_a, action_size)
-
-            self.fc2_a_mean = tf.tile(tf.reduce_mean(self.fc2_a, axis=-1, keepdims=True), [1, action_size])
-            self.fc2_adv = tf.subtract(self.fc2_a, self.fc2_a_mean)
-
-            self.Q_Out = tf.add(self.fc2_s, self.fc2_adv)
-            ################################################################################################
+            self.fc1 = tf.layers.dense(self.flat,512,activation=tf.nn.relu)
+            self.Q_Out = tf.layers.dense(self.fc1, action_size, activation=None)
         self.predict = tf.argmax(self.Q_Out, 1)
 
         # 손실함수 값 계산 및 네트워크 학습 수행 
@@ -100,6 +93,12 @@ class DQNAgent():
 
         self.memory = deque(maxlen=mem_maxlen)
         self.obs_set = deque(maxlen=skip_frame*stack_frame)
+
+        ######################### MultiStep #########################
+        self.state_set = deque(maxlen=n_step)
+        self.action_set = deque(maxlen=n_step)
+        self.reward_set = deque(maxlen=n_step)
+        #############################################################
    
         config = tf.ConfigProto() 
         config.gpu_options.allow_growth = True
@@ -141,7 +140,30 @@ class DQNAgent():
 
     # 리플레이 메모리에 데이터 추가 (상태, 행동, 보상, 다음 상태, 게임 종료 여부)
     def append_sample(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+        ################################## MultiStep ##################################
+        self.state_set.append(state)
+        self.action_set.append(action)
+        self.reward_set.append(reward)
+
+        if len(self.state_set) < n_step:
+            self.memory.append((state, action, reward, next_state, done, len(self.state_set)))
+        else:
+            if done:
+                for i in range(n_step):
+                    state = self.state_set[i]
+                    action = self.action_set[i]
+                    discounted_reward = 0
+                    for j in range(n_step-i):
+                        discounted_reward += ((discount_factor**j)*self.reward_set[i+j])
+                    self.memory.append((state, action, discounted_reward, next_state, done, n_step))
+            else:
+                state = self.state_set[0]
+                action = self.action_set[0]
+                discounted_reward = 0
+                for i in range(n_step):
+                    discounted_reward += ((discount_factor**i)*self.reward_set[i]) 
+                self.memory.append((state, action, discounted_reward, next_state, done, n_step))
+        ###############################################################################
 
     # 네트워크 모델 저장 
     def save_model(self):
@@ -152,11 +174,13 @@ class DQNAgent():
         # 학습을 위한 미니 배치 데이터 샘플링
         mini_batch = random.sample(self.memory, batch_size)
 
+        ################################## MultiStep ##################################
         states = []
         actions = []
         rewards = []
         next_states = []
         dones = []
+        n_steps = []
 
         for i in range(batch_size):
             states.append(mini_batch[i][0])
@@ -164,6 +188,7 @@ class DQNAgent():
             rewards.append(mini_batch[i][2])
             next_states.append(mini_batch[i][3])
             dones.append(mini_batch[i][4])
+            n_steps.append(mini_batch[i][5])
 
         action_onehot_batch = np.eye(action_size)[actions]
 
@@ -176,7 +201,11 @@ class DQNAgent():
             if dones[i]:
                 target[i] = rewards[i]
             else:
-                target[i] = rewards[i] + discount_factor * np.amax(target_val[i])
+                if n_steps[i] < n_step:
+                    target[i] = rewards[i] + discount_factor * np.amax(target_val[i])
+                else:
+                    target[i] = rewards[i] + (discount_factor**n_step) * np.amax(target_val[i])
+        ###############################################################################
 
         # 학습 수행 및 손실함수 값 계산 
         _, loss = self.sess.run([self.model.UpdateModel, self.model.loss],

@@ -28,7 +28,7 @@ test_step = 100000
 start_train_step = 50000
 
 target_update_step = 5000
-print_episode = 25
+print_step = 5000
 save_step = 100000
 
 epsilon_init = 1.0
@@ -215,10 +215,10 @@ class DQNAgent():
 
         return Summary, Merge
     
-    def Write_Summray(self, reward, loss, episode):
+    def Write_Summray(self, reward, loss, step):
         self.Summary.add_summary(
             self.sess.run(self.Merge, feed_dict={self.summary_loss: loss, 
-                                                 self.summary_reward: reward}), episode)
+                                                 self.summary_reward: reward}), step)
 
     def append_TD_list(self, state, action, reward, next_state, done):
         # Memory에 저장할 데이터에 대한 TD Error 계산
@@ -342,16 +342,16 @@ if __name__ == '__main__':
                 agent.save_model()
                 print("Save Model: {}".format(save_path))
 
+            # 게임 진행 상황 출력 및 텐서 보드에 보상과 손실함수 값 기록 
+            if step % print_step == 0 and step != 0 and len(rewards)>0:
+                print("step: {} / episode: {} / reward: {:.2f} / loss: {:.4f} / epsilon: {:.3f}".format
+                    (step, episode, np.mean(rewards), np.mean(losses), agent.epsilon))
+                agent.Write_Summray(np.mean(rewards), np.mean(losses), step)
+                rewards = []
+                losses = []
+
         rewards.append(episode_rewards)
         episode += 1
-
-        # 게임 진행 상황 출력 및 텐서 보드에 보상과 손실함수 값 기록 
-        if episode % print_episode == 0 and episode != 0:
-            print("step: {} / episode: {} / reward: {:.2f} / loss: {:.4f} / epsilon: {:.3f}".format
-                  (step, episode, np.mean(rewards), np.mean(losses), agent.epsilon))
-            agent.Write_Summray(np.mean(rewards), np.mean(losses), episode)
-            rewards = []
-            losses = []
 
     agent.save_model()
     print("Save Model: {}".format(save_path))
