@@ -199,7 +199,7 @@ class DQN:
 		action_index = 0
 
 		# Choose action
-		if random.random() < self.epsilon and self.train_mode == True:
+		if random.random() < self.epsilon:
 			# Choose random action
 			action_index = random.randint(0, Num_action-1)
 			action[action_index] = 1
@@ -316,7 +316,6 @@ if __name__ == '__main__':
 		# Testing 
 		if agent.progress=='Testing':
 			agent.epsilon = 0.
-			agent.train_mode = False
 
 		# Update former info.
 		state = next_state
